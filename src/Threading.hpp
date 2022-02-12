@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <condition_variable>
 
 #if __linux__ != 0
 #include <time.h>

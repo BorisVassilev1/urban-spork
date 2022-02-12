@@ -438,3 +438,9 @@ FodyWeavers.xsd
 # End of https://www.toptal.com/developers/gitignore/api/c++,visualstudio
 
 !mesh/*.*
+CMakeCache.txt
+CMakeFiles/*
+Makefile
+RTInOneWeekend
+cmake_install.cmake
+*.png

@@ -1,6 +1,7 @@
 #pragma once
 #include "Image.hpp"
 #include "Utils.hpp"
+#include <memory>
 
 struct Intersection;
 

@@ -4,11 +4,12 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <atomic>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "third_party/stb_image_write.h"
 
-#include "threading.hpp"
+#include "Threading.hpp"
 #include "Material.h"
 #include "Primitive.h"
 #include "Image.hpp"
