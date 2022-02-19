@@ -16,6 +16,7 @@ struct TriangleMesh : Primitive {
 		bool intersect(const Ray &ray, float tMin, float tMax, Intersection &intersection) override;
 		bool boxIntersect(const BBox &box) override;
 		void expandBox(BBox& box) override;
+		vec3 getCenter() override; 
 	};
 	AcceleratorPtr accelerator;
 	std::vector<vec3> vertices;

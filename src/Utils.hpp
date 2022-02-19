@@ -327,4 +327,15 @@ struct BBox {
 		}
 		return false;
 	}
+	
+	// get the center of the box
+	vec3 center() const {
+		return (min + max) / 2.;
+	}
+	
+	float surfaceArea() const {
+		vec3 size = max - min;
+		return (size.x * size.y + size.x * size.z + size.y * size.z);
+	}
+
 };

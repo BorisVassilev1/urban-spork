@@ -32,6 +32,8 @@ struct Intersectable {
 	/// @param box [out] - the box to expand
 	virtual void expandBox(BBox &box) = 0;
 
+	virtual vec3 getCenter() = 0;
+
 	virtual ~Intersectable() = default;
 };
 
@@ -53,6 +55,10 @@ struct Primitive : Intersectable {
 		other.add(box);
 	}
 
+	vec3 getCenter() override {
+		return box.center();
+	}
+	
 	~Primitive() override = default;
 };
 
@@ -114,6 +120,7 @@ private:
 		bool intersect(const Ray &ray, float tMin, float tMax, Intersection &intersection) override;
 		bool boxIntersect(const BBox &other) override;
 		void expandBox(BBox &other) override;
+		vec3 getCenter() override;
 	};
 	std::vector<Instance> instances;
 

@@ -167,6 +167,14 @@ void TriangleMesh::Triangle::expandBox(BBox& box) {
 	}
 }
 
+vec3 TriangleMesh::Triangle::getCenter() {
+	vec3 sum(0,0,0);
+	for (int c = 0; c < 3; c++) {
+		sum += owner->vertices[indices[c]];
+	}
+	return sum / 3.;
+}
+
 void TriangleMesh::onBeforeRender() {
 	if (faces.size() < 50) {
 		return;
