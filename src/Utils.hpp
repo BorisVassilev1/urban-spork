@@ -135,6 +135,10 @@ inline vec3 operator/(vec3 v, float t) {
 	return (1 / t) * v;
 }
 
+inline vec3 operator/(float t, const vec3 &v) {
+	return vec3(t / v.x, t / v.y, t / v.z);
+}
+
 inline vec3 max(const vec3 &a, const vec3 &b) {
 	return {
 		std::max(a.x, b.x),
@@ -267,6 +271,24 @@ struct BBox {
 		};
 	}
 
+
+	bool intersectAABB(const Ray &ray) {
+		// Source: https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525
+		float t1 = -FLT_MAX;
+		float t2 = FLT_MAX;
+
+		vec3 t0s = (min - ray.origin) * (1.0f / ray.dir);
+		vec3 t1s = (max - ray.origin) * (1.0f / ray.dir);
+
+		vec3 tsmaller = ::min(t0s, t1s);
+		vec3 tbigger = ::max(t0s, t1s);
+
+		t1 = std::max(t1, std::max(tsmaller.x, std::max(tsmaller.y, tsmaller.z)));
+		t2 = std::min(t2, std::min(tbigger.x, std::min(tbigger.y, tbigger.z)));
+		return t1 <= t2;
+	}
+
+
 	/// @brief Check if a ray intersects the box
 	bool testIntersect(const Ray& ray) const {
 		// source: https://github.com/anrieff/quaddamage/blob/master/src/bbox.h
@@ -327,12 +349,12 @@ struct BBox {
 		}
 		return false;
 	}
-	
+
 	// get the center of the box
 	vec3 center() const {
 		return (min + max) / 2.;
 	}
-	
+
 	float surfaceArea() const {
 		vec3 size = max - min;
 		return (size.x * size.y + size.x * size.z + size.y * size.z);
