@@ -1,6 +1,7 @@
 #include "Primitive.h"
 #include "Threading.hpp"
 #include <cstring>
+#include <algorithm>
 
 struct OctTree : IntersectionAccelerator {
 	struct Node {
@@ -41,7 +42,7 @@ struct OctTree : IntersectionAccelerator {
 	}
 
 	void build(Node *n, int currentDepth = 0) {
-		if (currentDepth >= MAX_DEPTH || n->primitives.size() <= MIN_PRIMITIVES) {
+		if (currentDepth >= MAX_DEPTH || n->primitives.size() <= (unsigned long int) MIN_PRIMITIVES) {
 			leafSize = std::max(leafSize, int(n->primitives.size()));
 			return;
 		}
@@ -56,7 +57,7 @@ struct OctTree : IntersectionAccelerator {
 			nodes++;
 			memset(child->children, 0, sizeof(child->children));
 			child->box = childBoxes[c];
-			for (int r = 0; r < n->primitives.size(); r++) {
+			for (unsigned long int r = 0; r < n->primitives.size(); r++) {
 				if (n->primitives[r]->boxIntersect(child->box)) {
 					child->primitives.push_back(n->primitives[r]);
 				}
@@ -92,18 +93,18 @@ struct OctTree : IntersectionAccelerator {
 		nodes = leafSize = depth = 0;
 		root = new Node();
 		root->primitives.swap(allPrimitives);
-		for (int c = 0; c < root->primitives.size(); c++) {
+		for (unsigned long int c = 0; c < root->primitives.size(); c++) {
 			root->primitives[c]->expandBox(root->box);
 		}
 		build(root);
-		printf(" done in %lldms, nodes %d, depth %d, %d leaf size\n", timer.toMs(timer.elapsedNs()), nodes, depth, leafSize);
+		printf(" done in %ldms, nodes %d, depth %d, %d leaf size\n", timer.toMs(timer.elapsedNs()), nodes, depth, leafSize);
 	}
 
 	bool intersect(Node *n, const Ray& ray, float tMin, float &tMax, Intersection& intersection) {
 		bool hasHit = false;
 
 		if (n->isLeaf()) {
-			for (int c = 0; c < n->primitives.size(); c++) {
+			for (unsigned long int c = 0; c < n->primitives.size(); c++) {
 				if (n->primitives[c]->intersect(ray, tMin, tMax, intersection)) {
 					tMax = intersection.t;
 					hasHit = true;
@@ -136,7 +137,6 @@ struct OctTree : IntersectionAccelerator {
 	}
 };
 
-/// TODO: Implement one/both or any other acceleration structure and change makeDefaultAccelerator to create it
 struct KDTree : IntersectionAccelerator {
 	void addPrimitive(Intersectable *prim) override {}
 	void clear() override {}
@@ -170,7 +170,7 @@ struct BVHTree : IntersectionAccelerator {
 	// left child will always be next in the array, right child is a index in the nodes array.
 	struct FastNode {
 		BBox box;
-		unsigned int right;
+		long unsigned int right; // 4e9 is a puny number of primitives => long, not int
 		Intersectable* *primitives;
 		char splitAxis;
 		bool isLeaf() {
@@ -179,19 +179,76 @@ struct BVHTree : IntersectionAccelerator {
 		}
 	};
 
+	// the simplest possible allocator that could be
+	template <class T>
+		class StackAllocator {
+			T *buff = nullptr;
+			long unsigned int maxSize = 0;
+			long unsigned size = 0;
+
+			public:
+			StackAllocator() {};
+
+			void init(size_t maxSize) {
+				if(buff != nullptr) delete buff;
+
+				this->maxSize = maxSize;
+				size = 0;
+				buff = new T[maxSize];
+				memset(buff, 0, maxSize * sizeof(T));
+			}
+
+			T *alloc(size_t size) {
+				assert(size + this->size <= maxSize);
+				T *res = &(buff[this->size]);
+				this->size += size;
+				return res;
+			}
+
+			~StackAllocator() {
+				if(buff != nullptr) {
+					delete [] buff;
+					buff = nullptr;
+				}
+			}
+
+			long unsigned int getSize() {return size;}
+		};
+	
+	// all primitives added
 	std::vector<Intersectable*> allPrimitives;
+	// root of the construction tree
 	Node *root = nullptr;
+	// nodes of the fast traversal tree
 	std::vector<FastNode> fastNodes;
+	// the primitives sorted for fast traversal
+	StackAllocator<Intersectable*> fastTreePrimitives;
 	bool built = false;
+	// cost for traversing a parent node. It is assumed that the intersection cost with a primitive is 1.0
 	static constexpr float SAH_TRAVERSAL_COST = 0.125;
-	static constexpr float SAH_INTERSECTION_COST = 1;
+	// the number of splits SAH will try.
 	static constexpr int SAH_TRY_COUNT = 5;
-	static constexpr int MAX_DEPTH = 60;
+	static constexpr int MAX_DEPTH = 50;
 	static constexpr int MIN_PRIMITIVES_COUNT = 4;
+	// when a node has less than that number of primitives it will sort them and always split in the middle
+	// 
+	// theoretically: 
+	// the higher this is, the better the tree and the slower its construction
+	// 
+	// practically: 
+	// when setting this to something higher, the tree construction time changes by verry little
+	// and the render time goes up. When this is set to 1e6 (basically always sort), makes 
+	// rendering about 30% slower than when it is 0 (never split perfectly). (on the instanced dragons scene) 
+	// Perfect splits clearly produce shallower trees, which should make rendering faster ... but it doesn't.
+	//
+	// I guess SAH is too good
+	static constexpr int PERFECT_SPLIT_THRESHOLD = 0;
 
 	int depth = 0;
 	int leafSize = 0;
-	int nodeCount = 0;
+	long int leavesCount = 0;
+	long int nodeCount = 0;
+	long int primitivesCount = 0;
 
 	void addPrimitive(Intersectable *prim) override {
 		allPrimitives.push_back(prim);
@@ -204,25 +261,27 @@ struct BVHTree : IntersectionAccelerator {
 			delete node->children[i];
 		}
 	}
-
+	
 	void clear() override {
 		allPrimitives.clear();
 		built = false;
-		clear(root);
-		delete root;
+		clearConstructionTree();
 		root = 0;
 		depth = 0;
 		nodeCount = 0;
 		leafSize = 0;
-		
-		for(FastNode &node : fastNodes) {
-			delete node.primitives;
-		}
+	}
+
+	// clears the construction tree.
+	void clearConstructionTree() {
+		clear(root);
+		delete(root);
 	}
 
 	void build(Node *node, int depth) {
 		if(depth > MAX_DEPTH || node->primitives.size() <= MIN_PRIMITIVES_COUNT) {
 			leafSize = std::max((int)(node->primitives.size()), leafSize);
+			++ leavesCount;
 			return;
 		}
 		this->depth = std::max(depth, this->depth);
@@ -243,36 +302,58 @@ struct BVHTree : IntersectionAccelerator {
 				maxAxisValue = size[i];
 			}
 		}
-
-		// TODO: when primitive count is small, just sort and split in the middle
-		float noSplitSAH = node->primitives.size();
-
-		// try evenly distributed splits with SAH
-		float bestSAH = FLT_MAX, bestRatio = -1;
-		for(int i = 0; i < SAH_TRY_COUNT; ++ i) {
-			float ratio = float(i + 1.) / float(SAH_TRY_COUNT + 1);	
-			float sah = costSAH(node, maxAxis, ratio);
-			if(bestSAH > sah) {
-				bestSAH = sah;
-				bestRatio = ratio;
-			}
-		}
-
-		if(bestSAH > noSplitSAH) {
-			leafSize = std::max((int)(node->primitives.size()), leafSize);
-			return;
-		}
-
 		node->splitAxis = maxAxis;
-		const float split = node->box.min[maxAxis] * bestRatio + node->box.max[maxAxis] * (1 - bestRatio);
-		// distibute the primitives to the child nodes
-		node->left = new Node();
-		node->right = new Node();
-		nodeCount +=2;
-		for(Intersectable *obj : node->primitives) {
-			int ind = obj->getCenter()[maxAxis] > split; // index is 0 or 1 depending on that boolean value
-			obj->expandBox(node->children[ind]->box);
-			node->children[ind]->primitives.push_back(obj);
+		
+		// choose splitting algorithm
+		if(node->primitives.size() < PERFECT_SPLIT_THRESHOLD) {
+			unsigned long int size = node->primitives.size();
+			// sorts so that the middle element is in its place, all others are in sorted order relative to it
+			std::nth_element(node->primitives.begin(), node->primitives.begin() + size * 0.5, node->primitives.end(),
+							 [&](Intersectable* &a, Intersectable* &b) {
+								 return a->getCenter()[maxAxis] < b->getCenter()[maxAxis];
+							 });
+			node->left = new Node();
+			node->right = new Node();
+			nodeCount +=2;
+			
+			// split in half
+			for(unsigned long int i = 0; i < size; ++ i) {
+				bool ind = i > (size / 2 - 1);
+				node->primitives[i]->expandBox(node->children[ind]->box);
+				node->children[ind]->primitives.push_back(node->primitives[i]);
+			}
+		} else {
+			long int noSplitSAH = node->primitives.size();
+
+			// try evenly distributed splits with SAH
+			float bestSAH = FLT_MAX, bestRatio = -1;
+			for(int i = 0; i < SAH_TRY_COUNT; ++ i) {
+				float ratio = float(i + 1.) / float(SAH_TRY_COUNT + 1);	
+				float sah = costSAH(node, maxAxis, ratio);
+				if(bestSAH > sah) {
+					bestSAH = sah;
+					bestRatio = ratio;
+				}
+			}
+
+			// create a leaf when the node can't be split effectively
+			if(bestSAH > noSplitSAH) {
+				leafSize = std::max((int)(node->primitives.size()), leafSize);
+				++ leavesCount;
+				return;
+			}
+			
+			// position of the split plane. lerp between min and max
+			const float split = node->box.min[maxAxis] * bestRatio + node->box.max[maxAxis] * (1 - bestRatio);
+			// distibute the primitives to the child nodes
+			node->left = new Node();
+			node->right = new Node();
+			nodeCount +=2;
+			for(Intersectable *obj : node->primitives) {
+				int ind = obj->getCenter()[maxAxis] > split;
+				obj->expandBox(node->children[ind]->box);
+				node->children[ind]->primitives.push_back(obj);
+			}
 		}
 
 		build(node->left, depth + 1);
@@ -281,28 +362,35 @@ struct BVHTree : IntersectionAccelerator {
 	}
 
 	void build(Purpose purpose) override {
+		// purpose is ignored. what works best for triangles seems to also work best for objects
 		printf("Building BVH tree with %d primitives... ", int(allPrimitives.size()));
 		Timer timer;
 
+		primitivesCount = allPrimitives.size();
+
 		root = new Node();
 		root->primitives.swap(allPrimitives);
-		for(int c = 0; c < root->primitives.size(); ++c) {
+		for(unsigned long int c = 0; c < root->primitives.size(); ++c) {
 			root->primitives[c]->expandBox(root->box);
 		}
+	
+		// build both trees
 		build(root, 0);
-		built = true;
-		
 		buildFastTree();
 
-		printf(" done in %lldms, nodes %d, depth %d, %d leaf size\n", timer.toMs(timer.elapsedNs()), nodeCount, depth, leafSize);
+		// construction tree is no longer needed
+		clearConstructionTree();
+
+		built = true;
+		printf(" done in %ldms, nodes: %ld, leaves: %ld, depth %d, %d leaf size\n", timer.toMs(timer.elapsedNs()), nodeCount, leavesCount, depth, leafSize);
 	}
 
 	bool isBuilt() const override { return built; }
 
-	bool intersect(int nodeIndex, const Ray& ray, float tMin, float &tMax, Intersection& intersection) {
+	bool intersect(long unsigned int nodeIndex, const Ray& ray, float tMin, float &tMax, Intersection& intersection) {
 		bool hasHit = false;
 		FastNode *node = &(fastNodes[nodeIndex]);
-		
+
 		if(node->isLeaf()) {
 			//printf("intersecting leaf: %d, %d\n", nodeIndex, node->primitives[0] == nullptr);
 			// iterate either to a invalid pointer or to the max leaf size
@@ -327,22 +415,33 @@ struct BVHTree : IntersectionAccelerator {
 			//             +---------+----+        |
 			//                       |             |
 			//                       +-------------+
-			
-			if(fastNodes[nodeIndex+1].box.testIntersect(ray)) {
-				if(intersect(nodeIndex+1, ray, tMin, tMax, intersection)) {
-					//printf("%d hit %d\n", nodeIndex, nodeIndex + 1);
-					tMax = intersection.t;
-					hasHit = true;
-				}
-			}
-			if(fastNodes[node->right].box.testIntersect(ray)) {
-				if(intersect(node->right, ray, tMin, tMax, intersection)) {
-					//printf("%d hit %d\n", nodeIndex, node->right);
-					tMax = intersection.t;
-					hasHit = true;
-				}
-			}
 
+			// I know that the next section is almost unreadable, 
+			// won't be much better if I replace it with a lot of copy-pasted if-statements
+
+			// the distances to both children boxes
+			float dist[2];
+			long unsigned int childIndices[2] = {nodeIndex + 1, node->right};
+			bool testIntersect[2] = {
+				fastNodes[childIndices[0]].box.testIntersect(ray, dist[0]),
+				fastNodes[childIndices[1]].box.testIntersect(ray, dist[1])};
+
+			int direction = ray.dir[node->splitAxis] > 0.f;
+
+			if(testIntersect[!direction]) {
+				if(intersect(childIndices[!direction], ray, tMin, tMax, intersection)) {
+					tMax = intersection.t;
+					hasHit = true;
+				}
+			}
+			// if the closest found intersection is farther than the intersection
+			// with the second box, traverse it, otherwise skip it
+			if(tMax > dist[direction] && testIntersect[direction]) {
+				if(intersect(childIndices[direction], ray, tMin, tMax, intersection)) {
+					tMax = intersection.t;
+					hasHit = true;
+				}
+			}
 		}
 
 		return hasHit;
@@ -354,28 +453,39 @@ struct BVHTree : IntersectionAccelerator {
 		} else return false;
 	}
 
-
+	// computes the SAH cost for a split on a given axis.
+	// ratio equals the size of the left child on the chosen axis over
+	// the size of the parent node size on that axis.
 	float costSAH(const Node *node, int axis, float ratio) {
+		// effectively a lerp between the min and max of the box
 		const float split = node->box.min[axis] * ratio + node->box.max[axis] * (1 - ratio);
-		int count[2] = {0,0};
+		long int count[2] = {0,0};
 		BBox boxes[2];
-		boxes[0] = BBox();
-		boxes[1] = BBox();
+		// count indices and merge bounding boxes in both children
 		for(Intersectable *obj : node->primitives) {
 			int ind = (obj->getCenter()[axis] > split);
 			++count[ind];
 			obj->expandBox(boxes[ind]);
 		}
+		// just the formula
 		float s0 = node->box.surfaceArea();
-		float s[2] = {count[0] ? boxes[0].surfaceArea() : 0, count[1] ? boxes[1].surfaceArea() : 0};
+		float s[2] = {
+			count[0] ? boxes[0].surfaceArea() : 0,
+			count[1] ? boxes[1].surfaceArea() : 0};
 		return SAH_TRAVERSAL_COST + (s[0] * count[0] + s[1] * count[1]) / s0;
 	}
 
-
+	// builds a tree for fast traversal
 	void buildFastTree() {
+		// no reallocations whould happen
 		fastNodes.reserve(nodeCount);
 
+		// every leaf will have a list of primitives that ends with a null pointer.
+		fastTreePrimitives.init(primitivesCount + leavesCount);
+
+		// the other function expects the parent node to already have been pushed to the vector
 		fastNodes.push_back(makeFastLeaf(root));
+		// leaves must not be traced down
 		if(!(root->isLeaf())) {
 			buildFastTree(root, fastNodes);
 		}
@@ -404,12 +514,14 @@ struct BVHTree : IntersectionAccelerator {
 		}
 	}
 
+	// copies the data from a Node to a FastNode when constructing the traversal tree
 	FastNode makeFastLeaf(Node *node) {
 		if(node->isLeaf()) {
-			// TODO: this is slow because of heap allocation
-			// this should point to an array somewhere
-			Intersectable** primitives = new Intersectable*[node->primitives.size() + 1];
-			memset(primitives, (long int)nullptr, (node->primitives.size() + 1) * sizeof(Intersectable*));
+			// This should have sped up things because continuous allocation should be better for cache.
+			// But it has no effect. It looks like the access of primitives is random enough that
+			// it always generates a cache miss.
+			Intersectable** primitives = fastTreePrimitives.alloc(node->primitives.size() + 1);
+			//Intersectable** primitives = new Intersectable*[node->primitives.size() + 1];
 			memcpy(primitives, &(node->primitives[0]), node->primitives.size() * sizeof(Intersectable*));
 			return FastNode{node->box, 0, primitives, node->splitAxis};
 		} else {
@@ -419,10 +531,36 @@ struct BVHTree : IntersectionAccelerator {
 
 };
 
+// BENCHMARKING:
+// tree type		scene				tree construction time (ms)			render time (ms)
+// oct				dragon				1576								1171
+// oct				instancedCubes		8									2313
+// oct				instancedDragons	1572 + 9							109969
+// bvh				dragon				209									266
+// bvh				instancedCubes		1									170
+// bvh				instancedDragons	210 + 21							8726
+//
+//
+// NOTE:
+// Домашно от Борис Василев
+// Направих промени и в другите файлове в проекта. Форкнал съм проекта в Гитхъб, така че
+// там могат лесно да се видят промените. Знам, че SAH изчисленията могат да бъдат
+// оптимизирани още малко (центъра на всяка кутия се изчислява при всяко сравнение и подобни).
+// Но дори и да се направи максимално ефективно, едва ли ще свали повече от 20% от времето 
+// за строеж на дървото, което на фона на 200ms няма да е голяма работа, осбено имайки пред вид, 
+// че в повечето случаи ще трябва да се рендърват повече от 1 кадър със повече от 2 лъча на пиксел,
+// а виждаме, че по-сложната сцена вече отнема >40 пъти повече време.
+//
+// общ резултат: 
+// 5-7x по-добро време за конструкция на дървото
+// 5-10x по-добро време за трасиране на лъчите
+//
+// С нетърпение очаквам коментара Ви. Надявам се скоро да имаме възможността да работим заедно отново.
+
 AcceleratorPtr makeDefaultAccelerator() {
 	// TODO: uncomment or add the acceleration structure you have implemented
 	//return AcceleratorPtr(new KDTree());
-	//return AcceleratorPtr(new BVHTree());
-	return AcceleratorPtr(new OctTree());
+	return AcceleratorPtr(new BVHTree());
+	//return AcceleratorPtr(new OctTree());
 }
 

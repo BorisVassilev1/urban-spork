@@ -123,6 +123,10 @@ inline vec3 operator*(const vec3 &u, const vec3 &v) {
 	return vec3(u._v[0] * v._v[0], u._v[1] * v._v[1], u._v[2] * v._v[2]);
 }
 
+inline vec3 operator/(const vec3 &u, const vec3 &v) {
+	return vec3(u.x / v.x, u.y / v.y, u.z / v.z);
+}
+
 inline vec3 operator*(float t, const vec3 &v) {
 	return vec3(t * v._v[0], t * v._v[1], t * v._v[2]);
 }
@@ -271,12 +275,12 @@ struct BBox {
 		};
 	}
 
-
-	bool intersectAABB(const Ray &ray) {
+	/// @brief Check if a ray intersects the box
+	bool testIntersect(const Ray &ray, float &t) const {
 		// Source: https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525
 		float t1 = -FLT_MAX;
 		float t2 = FLT_MAX;
-
+		
 		vec3 t0s = (min - ray.origin) * (1.0f / ray.dir);
 		vec3 t1s = (max - ray.origin) * (1.0f / ray.dir);
 
@@ -285,69 +289,13 @@ struct BBox {
 
 		t1 = std::max(t1, std::max(tsmaller.x, std::max(tsmaller.y, tsmaller.z)));
 		t2 = std::min(t2, std::min(tbigger.x, std::min(tbigger.y, tbigger.z)));
+		t = t1;
 		return t1 <= t2;
 	}
 
-
-	/// @brief Check if a ray intersects the box
-	bool testIntersect(const Ray& ray) const {
-		// source: https://github.com/anrieff/quaddamage/blob/master/src/bbox.h
-		assert(!isEmpty());
-		if (inside(ray.origin)) {
-			return true;
-		}
-
-		for (int dim = 0; dim < 3; dim++) {
-			if ((ray.dir[dim] < 0 && ray.origin[dim] < min[dim]) || (ray.dir[dim] > 0 && ray.origin[dim] > max[dim])) {
-				continue;
-			}
-			if (fabs(ray.dir[dim]) < 1e-9) {
-				continue;
-			}
-			const float mul = 1.f / ray.dir[dim];
-			const int u = (dim == 0) ? 1 : 0;
-			const int v = (dim == 2) ? 1 : 2;
-			float dist = (min[dim] - ray.origin[dim]) * mul;
-			if (dist < 0) {
-				continue; //*
-			}
-			/* (*) this is a good optimization I found out by chance. Consider the following scenario
-			 *
-			 *   ---+  ^  (ray)
-			 *      |   \
-			 * bbox |    \
-			 *      |     \
-			 *      |      * (camera)
-			 * -----+
-			 *
-			 * if we're considering the walls up and down of the bbox (which belong to the same axis),
-			 * the optimization in (*) says that we can skip testing with the "up" wall, if the "down"
-			 * wall is behind us. The rationale for that is, that we can never intersect the "down" wall,
-			 * and even if we have the chance to intersect the "up" wall, we'd be intersection the "right"
-			 * wall first. So we can just skip any further intersection tests for this axis.
-			 * This may seem bogus at first, as it doesn't work if the camera is inside the BBox, but then we would
-			 * have quitted the function because of the inside(ray.start) condition in the first line of the function.
-			 */
-			float x = ray.origin[u] + ray.dir[u] * dist;
-			if (min[u] <= x && x <= max[u]) {
-				const float y = ray.origin[v] + ray.dir[v] * dist;
-				if (min[v] <= y && y <= max[v]) {
-					return true;
-				}
-			}
-			dist = (max[dim] - ray.origin[dim]) * mul;
-			if (dist < 0) {
-				continue;
-			}
-			x = ray.origin[u] + ray.dir[u] * dist;
-			if (min[u] <= x && x <= max[u]) {
-				const float y = ray.origin[v] + ray.dir[v] * dist;
-				if (min[v] <= y && y <= max[v]) {
-					return true;
-				}
-			}
-		}
-		return false;
+	bool testIntersect(const Ray &ray) const {
+		float a;
+		return testIntersect(ray, a);
 	}
 
 	// get the center of the box

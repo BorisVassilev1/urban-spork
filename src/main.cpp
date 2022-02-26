@@ -85,6 +85,7 @@ struct Scene : Task {
 		height = h;
 		samplesPerPixel = spp;
 		camera.aspect = float(width) / height;
+		renderedPixels = 0;
 	}
 
 	void addPrimitive(PrimPtr primitive) {
@@ -96,8 +97,8 @@ struct Scene : Task {
 	}
 
 	void run(int threadIndex, int threadCount) override {
-		const int total = width * height;
-		const int incrementPrint = total / 100;
+		int total = width * height;
+		const int incrementPrint = total / 20; // 100 is to much, may cause performance problems
 		for (int idx = threadIndex; idx < total; idx += threadCount) {
 			const int r = idx / width;
 			const int c = idx % width;
@@ -114,8 +115,9 @@ struct Scene : Task {
 			avg /= samplesPerPixel;
 			image(c, height - r - 1) = Color(sqrtf(avg.x), sqrtf(avg.y), sqrtf(avg.z));
 			const int completed = renderedPixels.fetch_add(1, std::memory_order_relaxed);
-			if (completed % incrementPrint == 0) {
-				printf("\r%d%% ", int(float(completed) / float(total) * 100));
+			if (completed % incrementPrint == incrementPrint - 1) {
+				printf("\r%d%% ", int(float(completed) / float(total) * 100 + 1));
+				fflush(stdout);
 			}
 		}
 	}
@@ -223,15 +225,21 @@ int main(int argc, char *argv[]) {
 	if (argc == 1) {
 		renderCount = 1;
 		puts("No arguments, will render only example scene");
-	} else {
+	} else if(argc == 2) {
 		const int arg = atoi(argv[1]);
 		if (arg == -1) {
 			renderCount = sceneCount;
 			firstScene = 0;
-		} else if (arg >= 1 && arg < sceneCount) {
+		} else if (arg >= 0 && arg < sceneCount) {
 			firstScene = arg;
-			renderCount = sceneCount;
+			renderCount = 1;
+		} else {
+			renderCount = 0;
+			puts("Invalid scene Id!!");
 		}
+	} else {
+		renderCount = 0;
+		puts("Too many arguments");
 	}
 
 	const int threadCount = std::max<unsigned>(std::thread::hardware_concurrency() - 1, 1);
