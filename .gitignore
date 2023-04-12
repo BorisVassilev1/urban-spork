@@ -444,3 +444,4 @@ Makefile
 RTInOneWeekend
 cmake_install.cmake
 *.png
+compile_commands.json

@@ -161,6 +161,7 @@ struct BVHTree : IntersectionAccelerator {
 		};
 		std::vector<Intersectable*> primitives;
 		char splitAxis;
+		Node() : left(nullptr), right(nullptr), splitAxis(-1) {}
 		bool isLeaf() {
 			return children[0] == nullptr;
 		}
