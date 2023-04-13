@@ -31,9 +31,12 @@ add_executable(${PROJECT_NAME} "${SOURCES};${HEADERS}")
 target_compile_definitions(${PROJECT_NAME} PRIVATE MESH_FOLDER="${CMAKE_SOURCE_DIR}/mesh")
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-
 set(CMAKE_CXX_FLAGS "-O3 -std=c++17")
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 
+
+add_library("urban-spork" STATIC ${SOURCES})
+target_link_libraries("urban-spork" PRIVATE Threads::Threads)
+target_compile_definitions("urban-spork" PRIVATE MESH_FOLDER="${CMAKE_SOURCE_DIR}/mesh")
 

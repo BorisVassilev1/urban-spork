@@ -213,10 +213,12 @@ inline vec3 reflect(const vec3 &v, const vec3 &normal) {
 
 /// Axis aligned bounding box, needs only min and max point of the box
 struct BBox {
-	vec3 min = {FLT_MAX, FLT_MAX, FLT_MAX};
-	vec3 max = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+	vec3 min = vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+	vec3 max = vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
 	BBox() = default;
+
+	BBox(const vec3 &min, const vec3 &max) : min(min), max(max) {}
 
 	/// @brief Check if the box is "empty", meaning its size has at lease one negative component
 	bool isEmpty() const {
@@ -252,16 +254,16 @@ struct BBox {
 		const vec3 size = max - min;
 		const vec3 center = min + size / 2;
 
-		parts[0] = BBox{min, center};
-		parts[1] = BBox{center, max};
+		parts[0] = BBox(min, center);
+		parts[1] = BBox(center, max);
 
-		parts[2] = BBox{vec3{min.x, center.y, min.z}, vec3{center.x, max.y, center.z}};
-		parts[3] = BBox{vec3{min.x, center.y, center.z}, vec3{center.x, max.y, max.z}};
-		parts[4] = BBox{vec3{min.x, min.y, center.z}, vec3{center.x, center.y, max.z}};
+		parts[2] = BBox(vec3{min.x, center.y, min.z}, vec3{center.x, max.y, center.z});
+		parts[3] = BBox(vec3{min.x, center.y, center.z}, vec3{center.x, max.y, max.z});
+		parts[4] = BBox(vec3{min.x, min.y, center.z}, vec3{center.x, center.y, max.z});
 
-		parts[5] = BBox{vec3{center.x, min.y, min.z}, vec3{max.x, center.y, center.z}};
-		parts[6] = BBox{vec3{center.x, min.y, center.z}, vec3{max.x, center.y, max.z}};
-		parts[7] = BBox{vec3{center.x, center.y, min.z}, vec3{max.x, max.y, center.z}};
+		parts[6] = BBox(vec3{center.x, min.y, center.z}, vec3{max.x, center.y, max.z});
+		parts[5] = BBox(vec3{center.x, min.y, min.z}, vec3{max.x, center.y, center.z});
+		parts[7] = BBox(vec3{center.x, center.y, min.z}, vec3{max.x, max.y, center.z});
 	}
 
 	/// @brief Compute the intersection with another box
