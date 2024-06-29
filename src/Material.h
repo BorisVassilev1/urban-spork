@@ -13,6 +13,7 @@ struct Material {
 	/// @param attenuation [out] - color attenuation for the at the intersection
 	/// @param scatter [out] - new scatter ray from the intersection
 	virtual bool shade(const Ray &in, const Intersection &data, Color &attenuation, Ray &scatter) = 0;
+	virtual ~Material() = default;
 };
 
 typedef std::unique_ptr<Material> MaterialPtr;
